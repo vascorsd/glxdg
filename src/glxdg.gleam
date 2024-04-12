@@ -34,6 +34,7 @@
 import gleam/io
 import gleam/string
 import gleam/result
+import gleam/option
 import envoy
 
 pub fn main() {
@@ -72,25 +73,82 @@ pub fn app(name: String) -> Result(AppName, String) {
   }
 }
 
-pub fn app_cache_dir(app: AppName) {
-  case envoy.get("XDG_CACHE_HOME") {
-    Ok(v) ->
-      check_absolute(v)
-      |> result.map(fn(_) { v <> "/" <> app.v })
+pub type Xdg {
+  // Project dirs
+  XdgRuntimeHome
+  XdgConfigHome
+  XdgCacheHome
+  XdgDataHome
+  XdgStateHome
 
-    Error(_) -> user_home(fn(h) { h <> "/" <> ".cache" <> "/" <> app.v })
+  // User dirs
+  XdgDesktopDir
+  XdgDownloadDir
+  XdgPicturesDir
+  XdgVideosDir
+  XdgMusicDir
+  XdgDocumentsDir
+}
+
+pub type XdgError {
+  EnvVarNotAvailable(String)
+  EnvVarNotAbsolutePath(String)
+  EnvVarHomeProblem(String)
+}
+
+pub fn var_name(var: Xdg) -> String {
+  case var {
+    // Project dirs
+    XdgRuntimeHome -> "XDG_RUNTIME_DIR"
+    XdgConfigHome -> "XDG_CONFIG_HOME"
+    XdgCacheHome -> "XDG_CACHE_HOME"
+    XdgDataHome -> "XDG_DATA_HOME"
+    XdgStateHome -> "XDG_STATE_HOME"
+
+    // User dirs
+    XdgDesktopDir -> "XDG_DESKTOP_DIR"
+    XdgDownloadDir -> "XDG_DOWNLOAD_DIR"
+    XdgPicturesDir -> "XDG_PICTURES_DIR"
+    XdgVideosDir -> "XDG_VIDEOS_DIR"
+    XdgMusicDir -> "XDG_MUSIC_DIR"
+    XdgDocumentsDir -> "XDG_DOCUMENTS_DIR"
   }
 }
 
-pub fn app_config_dir(app: AppName) {
-  case envoy.get("XDG_CONFIG_HOME") {
-    Ok(v) ->
-      check_absolute(v)
-      |> result.map(fn(_) { v <> "/" <> app.v })
+pub fn env_get(var: Xdg) -> Result(#(String, String), XdgError) {
+  let name = var_name(var)
 
-    Error(_) -> user_home(fn(h) { h <> "/" <> ".config" <> "/" <> app.v })
+  envoy.get(name)
+  |> result.map(fn(value) { #(name, value) })
+  |> result.map_error(fn(_) {
+    EnvVarNotAvailable(
+      "Requested environment variable - " <> name <> " - could not be found.",
+    )
+  })
+}
+
+pub fn env_home() -> Result(String, XdgError) {
+  case envoy.get("HOME") {
+    Ok(value) ->
+      case string.is_empty(value) {
+        True ->
+          Error(EnvVarHomeProblem(
+            "User $HOME is defined but appears to be empty. "
+            <> "Check your system, it's likely misconfigured.",
+          ))
+
+        False -> Ok(value)
+      }
+
+    Error(_) ->
+      Error(EnvVarHomeProblem(
+        "User $HOME is not defined. It's required. "
+        <> "Check your system, it's likely misconfigured.",
+      ))
   }
 }
+
+// Project dirs
 
 pub fn app_runtime_dir(app: AppName) {
   case envoy.get("XDG_RUNTIME_DIR") {
@@ -102,66 +160,87 @@ pub fn app_runtime_dir(app: AppName) {
   }
 }
 
-pub fn app_data_dir(app: AppName) {
-  case envoy.get("XDG_DATA_HOME") {
-    Ok(v) ->
-      check_absolute(v)
-      |> result.map(fn(_) { v <> "/" <> app.v })
+pub fn app_config_dir(app: AppName) {
+  app_use_var_or_fallback(app, XdgConfigHome, ".config")
+}
 
-    Error(_) -> user_home(fn(h) { h <> "/" <> ".local/share" <> "/" <> app.v })
-  }
+pub fn app_cache_dir(app: AppName) {
+  app_use_var_or_fallback(app, XdgCacheHome, ".cache")
+}
+
+pub fn app_data_dir(app: AppName) {
+  app_use_var_or_fallback(app, XdgDataHome, ".local/share")
 }
 
 pub fn app_state_dir(app: AppName) {
-  case envoy.get("XDG_STATE_HOME") {
-    Ok(v) ->
-      check_absolute(v)
-      |> result.map(fn(_) { v <> "/" <> app.v })
+  app_use_var_or_fallback(app, XdgStateHome, ".local/state")
+}
 
-    Error(_) -> user_home(fn(h) { h <> "/" <> ".local/state" <> "/" <> app.v })
+fn app_use_var_or_fallback(app: AppName, var: Xdg, fallback_dir: String) {
+  case env_get(var) {
+    Ok(#(name, value)) ->
+      validate_path(name, value)
+      |> result.map(make_path(_, app.v))
+
+    Error(_) -> {
+      env_home()
+      |> result.map(make_path(_, fallback_dir <> "/" <> app.v))
+    }
   }
 }
 
-pub fn desktop_dir() {
-  case envoy.get("XDG_DESKTOP_DIR") {
-    Ok(v) -> check_absolute(v)
-    Error(_) -> user_home(fn(h) { h <> "/" <> "Desktop" })
+// User dirs
+
+pub fn desktop_dir() -> Result(String, XdgError) {
+  use_var_or_fallback(XdgDesktopDir, "Desktop")
+}
+
+pub fn documents_dir() -> Result(String, XdgError) {
+  use_var_or_fallback(XdgDocumentsDir, "Documents")
+}
+
+pub fn pictures_dir() -> Result(String, XdgError) {
+  use_var_or_fallback(XdgPicturesDir, "Pictures")
+}
+
+pub fn videos_dir() -> Result(String, XdgError) {
+  use_var_or_fallback(XdgVideosDir, "Videos")
+}
+
+pub fn music_dir() -> Result(String, XdgError) {
+  use_var_or_fallback(XdgMusicDir, "Music")
+}
+
+pub fn downloads_dir() -> Result(String, XdgError) {
+  use_var_or_fallback(XdgDownloadDir, "Downloads")
+}
+
+fn use_var_or_fallback(var: Xdg, fallback_dir: String) {
+  case env_get(var) {
+    Ok(#(name, value)) -> validate_path(name, value)
+
+    Error(_) -> {
+      env_home()
+      |> result.map(make_path(_, fallback_dir))
+    }
   }
 }
 
-pub fn documents_dir() {
-  case envoy.get("XDG_DOCUMENTS_DIR") {
-    Ok(v) -> check_absolute(v)
-    Error(_) -> user_home(fn(h) { h <> "/" <> "Documents" })
+fn validate_path(var: String, value: String) -> Result(String, XdgError) {
+  case string.is_empty(value), is_absolute(value) {
+    False, True -> Ok(value)
+    _, _ ->
+      Error(EnvVarNotAbsolutePath(
+        "The environment variable - "
+        <> var
+        <> " - is not an absolute path or is empty. "
+        <> "Check your system, it's likely misconfigured.",
+      ))
   }
 }
 
-pub fn pictures_dir() {
-  case envoy.get("XDG_PICTURES_DIR") {
-    Ok(v) -> check_absolute(v)
-    Error(_) -> user_home(fn(h) { h <> "/" <> "Pictures" })
-  }
-}
-
-pub fn videos_dir() {
-  case envoy.get("XDG_VIDEOS_DIR") {
-    Ok(v) -> check_absolute(v)
-    Error(_) -> user_home(fn(h) { h <> "/" <> "Videos" })
-  }
-}
-
-pub fn music_dir() {
-  case envoy.get("XDG_MUSIC_DIR") {
-    Ok(v) -> check_absolute(v)
-    Error(_) -> user_home(fn(h) { h <> "/" <> "Music" })
-  }
-}
-
-pub fn downloads_dir() {
-  case envoy.get("XDG_DOWNLOAD_DIR") {
-    Ok(v) -> check_absolute(v)
-    Error(_) -> user_home(fn(h) { h <> "/" <> "Downloads" })
-  }
+fn make_path(base, specific) {
+  base <> "/" <> specific
 }
 
 fn user_home(with_home_fn: fn(String) -> String) {
@@ -169,16 +248,6 @@ fn user_home(with_home_fn: fn(String) -> String) {
     Ok(h) -> Ok(with_home_fn(h))
     Error(_) ->
       Error("User $HOME is not defined. It's required. Check your system.")
-  }
-}
-
-fn check_absolute(path: String) {
-  case is_absolute(path) {
-    True -> Ok(path)
-    False ->
-      Error(
-        "The read env variable does not represent an absolute path. Check your system.",
-      )
   }
 }
 
