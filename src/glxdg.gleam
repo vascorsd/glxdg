@@ -46,20 +46,21 @@ pub fn main() {
 
   b
   |> result.map(fn(app) {
-    io.debug(app_cache_dir(app))
+    //io.debug(app_runtime_dir(app))
     io.debug(app_config_dir(app))
-    io.debug(app_runtime_dir(app))
+    io.debug(app_cache_dir(app))
+    io.debug(app_data_dir(app))
     io.debug(app_state_dir(app))
   })
 
   // --
 
   io.debug(desktop_dir())
-  io.debug(documents_dir())
+  io.debug(downloads_dir())
   io.debug(pictures_dir())
   io.debug(videos_dir())
   io.debug(music_dir())
-  io.debug(downloads_dir())
+  io.debug(documents_dir())
 }
 
 pub opaque type AppName {
@@ -92,7 +93,7 @@ pub type Xdg {
 
 pub type XdgError {
   EnvVarNotAvailable(String)
-  EnvVarNotAbsolutePath(String)
+  EnvVarInvalid(String)
   EnvVarHomeProblem(String)
 }
 
@@ -150,15 +151,15 @@ pub fn env_home() -> Result(String, XdgError) {
 
 // Project dirs
 
-pub fn app_runtime_dir(app: AppName) {
-  case envoy.get("XDG_RUNTIME_DIR") {
-    Ok(v) ->
-      check_absolute(v)
-      |> result.map(fn(_) { v <> "/" <> app.v })
+// pub fn app_runtime_dir(app: AppName) {
+//  case envoy.get("XDG_RUNTIME_DIR") {
+//    Ok(v) ->
+//      check_absolute(v)
+//      |> result.map(fn(_) { v <> "/" <> app.v })
 
-    Error(_) -> Error("Could not find expected XDG runtime dir.")
-  }
-}
+//    Error(_) -> Error("Could not find expected XDG runtime dir.")
+//  }
+//}
 
 pub fn app_config_dir(app: AppName) {
   app_use_var_or_fallback(app, XdgConfigHome, ".config")
@@ -230,7 +231,7 @@ fn validate_path(var: String, value: String) -> Result(String, XdgError) {
   case string.is_empty(value), is_absolute(value) {
     False, True -> Ok(value)
     _, _ ->
-      Error(EnvVarNotAbsolutePath(
+      Error(EnvVarInvalid(
         "The environment variable - "
         <> var
         <> " - is not an absolute path or is empty. "
