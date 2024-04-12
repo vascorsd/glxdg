@@ -46,7 +46,7 @@ pub fn main() {
 
   b
   |> result.map(fn(app) {
-    //io.debug(app_runtime_dir(app))
+    io.debug(app_runtime_dir(app))
     io.debug(app_config_dir(app))
     io.debug(app_cache_dir(app))
     io.debug(app_data_dir(app))
@@ -151,15 +151,21 @@ pub fn env_home() -> Result(String, XdgError) {
 
 // Project dirs
 
-// pub fn app_runtime_dir(app: AppName) {
-//  case envoy.get("XDG_RUNTIME_DIR") {
-//    Ok(v) ->
-//      check_absolute(v)
-//      |> result.map(fn(_) { v <> "/" <> app.v })
+pub fn app_runtime_dir(app: AppName) {
+  case env_get(XdgRuntimeHome) {
+    Ok(#(name, value)) ->
+      validate_path(name, value)
+      |> result.map(make_path(_, app.v))
 
-//    Error(_) -> Error("Could not find expected XDG runtime dir.")
-//  }
-//}
+    Error(_) ->
+      Error(EnvVarInvalid(
+        "The enviroment variable - "
+        <> var_name(XdgRuntimeHome)
+        <> " - is expected to exist in a modern system."
+        <> " Check your system, it's likely misconfigured.",
+      ))
+  }
+}
 
 pub fn app_config_dir(app: AppName) {
   app_use_var_or_fallback(app, XdgConfigHome, ".config")
@@ -242,14 +248,6 @@ fn validate_path(var: String, value: String) -> Result(String, XdgError) {
 
 fn make_path(base, specific) {
   base <> "/" <> specific
-}
-
-fn user_home(with_home_fn: fn(String) -> String) {
-  case envoy.get("HOME") {
-    Ok(h) -> Ok(with_home_fn(h))
-    Error(_) ->
-      Error("User $HOME is not defined. It's required. Check your system.")
-  }
 }
 
 fn is_absolute(path: String) {
