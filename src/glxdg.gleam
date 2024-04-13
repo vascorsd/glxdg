@@ -34,7 +34,6 @@
 import gleam/io
 import gleam/string
 import gleam/result
-import gleam/option
 import envoy
 
 pub fn main() {
@@ -53,6 +52,10 @@ pub fn main() {
     io.debug(app_state_dir(app))
   })
 
+  b
+  |> result.try(app_dirs(_))
+  |> result.map(fn(dirs) { io.debug(dirs) })
+
   // --
 
   io.debug(desktop_dir())
@@ -67,10 +70,39 @@ pub opaque type AppName {
   AppName(v: String)
 }
 
+pub type AppDirs {
+  AppDirs(
+    runtime: String,
+    config: String,
+    cache: String,
+    data: String,
+    state: String,
+  )
+}
+
 pub fn app(name: String) -> Result(AppName, String) {
   case string.is_empty(name) {
     True -> Error("The 'name' for the application is empty. Provide a name.")
     False -> Ok(AppName(name))
+  }
+}
+
+pub fn app_dirs(app: AppName) -> Result(AppDirs, String) {
+  // really want a mapN and some applicative for the errors... :(
+
+  case
+    app_runtime_dir(app),
+    app_config_dir(app),
+    app_cache_dir(app),
+    app_data_dir(app),
+    app_state_dir(app)
+  {
+    Ok(r), Ok(co), Ok(ca), Ok(d), Ok(s) -> Ok(AppDirs(r, co, ca, d, s))
+    _, _, _, _, _ ->
+      Error(
+        "Could not prepare the directories for the app. "
+        <> "Check your system, it's likely misconfigured.",
+      )
   }
 }
 
@@ -151,7 +183,7 @@ pub fn env_home() -> Result(String, XdgError) {
 
 // Project dirs
 
-pub fn app_runtime_dir(app: AppName) {
+pub fn app_runtime_dir(app: AppName) -> Result(String, XdgError) {
   case env_get(XdgRuntimeHome) {
     Ok(#(name, value)) ->
       validate_path(name, value)
@@ -167,19 +199,19 @@ pub fn app_runtime_dir(app: AppName) {
   }
 }
 
-pub fn app_config_dir(app: AppName) {
+pub fn app_config_dir(app: AppName) -> Result(String, XdgError) {
   app_use_var_or_fallback(app, XdgConfigHome, ".config")
 }
 
-pub fn app_cache_dir(app: AppName) {
+pub fn app_cache_dir(app: AppName) -> Result(String, XdgError) {
   app_use_var_or_fallback(app, XdgCacheHome, ".cache")
 }
 
-pub fn app_data_dir(app: AppName) {
+pub fn app_data_dir(app: AppName) -> Result(String, XdgError) {
   app_use_var_or_fallback(app, XdgDataHome, ".local/share")
 }
 
-pub fn app_state_dir(app: AppName) {
+pub fn app_state_dir(app: AppName) -> Result(String, XdgError) {
   app_use_var_or_fallback(app, XdgStateHome, ".local/state")
 }
 
