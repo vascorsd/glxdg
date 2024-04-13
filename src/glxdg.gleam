@@ -87,6 +87,13 @@ pub fn app(name: String) -> Result(AppName, String) {
   }
 }
 
+// to use in tests only. can I not move this somehwere like /internal ?
+// ths is really weird and limiting...
+@internal
+pub fn unsafe_app(name:String) -> AppName {
+  AppName(name)
+}
+
 pub fn app_dirs(app: AppName) -> Result(AppDirs, String) {
   // really want a mapN and some applicative for the errors... :(
 
